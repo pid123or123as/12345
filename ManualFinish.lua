@@ -1,3 +1,4 @@
+print('mega ai')
 local ManualFinish = {}
 
 function ManualFinish.Init(UI, Core, notify)
