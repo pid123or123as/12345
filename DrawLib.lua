@@ -1,6 +1,6 @@
 --[[
 ==================================================================
-    DrawLib — Drawing-based UI library
+    DrawLib -- Drawing-based UI library
     API-compatible re-implementation of MacLib_V2
     
     * Pure Drawing API (no ScreenGui / Frame), mobile-friendly
@@ -71,6 +71,8 @@ if not Drawing then
             OutlineColor=Color3.new(0,0,0), From=Vector2.zero, To=Vector2.zero,
             Radius=0, NumSides=0, PointA=Vector2.zero, PointB=Vector2.zero,
             PointC=Vector2.zero, PointD=Vector2.zero, Data="", Rounding=0,
+            -- Image class (sUNC)
+            Opacity=1,
         }, { __index = function() return function() end end })
         function o:Remove() end
         function o:Destroy() end
@@ -108,7 +110,33 @@ function Easing.inOutQuad(t) return t < 0.5 and 2*t*t or 1 - math.pow(-2*t+2,2)/
 function Easing.linear(t) return t end
 
 -- ====================================================================
--- ANIMATION ENGINE — tweens arbitrary numbers/colors/vectors via callback
+-- IMAGE LOADER (sUNC) - readfile -> Drawing.Image
+-- ====================================================================
+-- Usage:
+--   local data = DrawLib:LoadImage("DrawLib/icon.png")
+--   local img  = DrawLib:DrawImage(data, 100, 100, 64, 64, 8, 10)
+--   img:Remove() -- cleanup
+
+function DrawLib:LoadImage(path)
+    if not (isfile and isfile(path)) then
+        warn("[DrawLib] LoadImage: file not found - " .. tostring(path))
+        return nil
+    end
+    local ok, data = pcall(readfile, path)
+    if not ok or not data then
+        warn("[DrawLib] LoadImage: readfile failed - " .. tostring(path))
+        return nil
+    end
+    return data
+end
+
+function DrawLib:DrawImage(data, x, y, w, h, rounding, zIndex)
+    if not data or data == "" then return nil end
+    return Draw.image(data, x, y, w, h, rounding or 0, zIndex or 2)
+end
+
+-- ====================================================================
+-- ANIMATION ENGINE -- tweens arbitrary numbers/colors/vectors via callback
 -- ====================================================================
 local Anim = { _active = {} }
 
@@ -154,7 +182,7 @@ function Anim.color(from, to, dur, easing, onUpdate, onComplete)
 end
 
 -- ====================================================================
--- DRAW PRIMITIVES — rounded rectangles via Square composition
+-- DRAW PRIMITIVES -- rounded rectangles via Square composition
 -- ====================================================================
 local Draw = {}
 
@@ -193,7 +221,7 @@ function Draw.text(str, x, y, size, color, font, center, zIndex)
     t.Position = Vector2.new(x, y)
     t.Size = size or 14
     t.Color = color or Color3.new(1, 1, 1)
-    t.Font = font or Drawing.Fonts.System  -- System font supports Unicode/Cyrillic/CJK
+    t.Font = font or Drawing.Fonts.UI
     t.Center = center or false
     t.Outline = false
     t.Transparency = 1
@@ -228,6 +256,18 @@ function Draw.line(x1, y1, x2, y2, color, thickness, transparency, zIndex)
     l.ZIndex = zIndex or 1
     l.Visible = true
     return l
+end
+
+-- Image (sUNC Drawing.Image — Data = raw bytes from readfile)
+function Draw.image(data, x, y, w, h, rounding, zIndex)
+    local img = Drawing.new("Image")
+    img.Data     = data or ""
+    img.Position = Vector2.new(x, y)
+    img.Size     = Vector2.new(w, h)
+    img.Rounding = rounding or 0
+    img.ZIndex   = zIndex or 2
+    img.Visible  = true
+    return img
 end
 
 -- Rounded rectangle approximation: center square + 4 edge squares + 4 corner circles
@@ -305,7 +345,7 @@ function Draw.shadow(x, y, w, h, radius, zIndex)
 end
 
 -- ====================================================================
--- INPUT MANAGER — handles touch + mouse, dispatches to interactive zones
+-- INPUT MANAGER -- handles touch + mouse, dispatches to interactive zones
 -- ====================================================================
 local Input = {
     zones = {},      -- {id, x, y, w, h, z, onPress, onRelease, onHover, onDrag, parentVisible, parentEnabled, data}
@@ -353,10 +393,10 @@ function Input.pick(x, y)
     return best
 end
 
--- Global input loop — to be installed once
+-- Global input loop -- to be installed once
 function Input.install()
     UserInputService.InputBegan:Connect(function(input, processed)
-        if processed then return end
+        -- Drawing UI: processed не проверяем -- нет ScreenGui, игра всегда поглощает ввод
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             local pos = input.Position
             local zone = Input.pick(pos.X, pos.Y)
@@ -431,7 +471,7 @@ end
 DrawLib._renderHooks = {}
 
 -- ====================================================================
--- ELEMENT BASE — anything drawn on screen with show/hide/destroy
+-- ELEMENT BASE -- anything drawn on screen with show/hide/destroy
 -- ====================================================================
 local function newElement()
     local el = {
@@ -533,8 +573,8 @@ function DrawLib:Window(Settings)
     Win:track(Draw.rect(X + 14, Y + headerH - 1, W - 28, 1, T.Accent, 0.4, Z.topbar+1))
 
     -- Title + subtitle
-    local title = Win:track(Draw.text(Settings.Title or "DrawLib", X + 18, Y + 10, mobile and 18 or 17, T.Text, Drawing.Fonts.System, false, Z.topbar+2))
-    local subtitle = Win:track(Draw.text(Settings.Subtitle or "", X + 18, Y + 30, mobile and 13 or 12, T.TextDim, Drawing.Fonts.System, false, Z.topbar+2))
+    local title = Win:track(Draw.text(Settings.Title or "DrawLib", X + 18, Y + 10, mobile and 18 or 17, T.Text, Drawing.Fonts.UI, false, Z.topbar+2))
+    local subtitle = Win:track(Draw.text(Settings.Subtitle or "", X + 18, Y + 30, mobile and 13 or 12, T.TextDim, Drawing.Fonts.UI, false, Z.topbar+2))
 
     WindowFunctions._title, WindowFunctions._subtitle = title, subtitle
 
@@ -547,7 +587,7 @@ function DrawLib:Window(Settings)
         local cx = X + W - 18 - (order-1) * (size + 8) - size
         local cy = Y + math.floor((headerH - size) / 2)
         local g = Win:trackGroup(Draw.roundedGroup(cx, cy, size, size, 6, color, 0, Z.topbar+2))
-        local txt = Win:track(Draw.text(label, cx + size/2, cy + 2, 16, T.Text, Drawing.Fonts.System, true, Z.topbar+3))
+        local txt = Win:track(Draw.text(label, cx + size/2, cy + 2, 16, T.Text, Drawing.Fonts.UI, true, Z.topbar+3))
         local zone = Input.register({
             x=cx, y=cy, w=size, h=size, z=Z.topbar+2,
             onPress = function()
@@ -572,14 +612,14 @@ function DrawLib:Window(Settings)
     end
 
     if not isDisabled("Exit") then
-        controlsList.exit = makeControl("×", T.Danger, function() WindowFunctions:Unload() end, 1)
+        controlsList.exit = makeControl("X", T.Danger, function() WindowFunctions:Unload() end, 1)
     end
     if not isDisabled("Minimize") then
-        controlsList.min = makeControl("–", T.Warning, function() WindowFunctions:SetState(false) end, 2)
+        controlsList.min = makeControl("-", T.Warning, function() WindowFunctions:SetState(false) end, 2)
     end
 
     -------------------------------------------------------------------
-    -- TAB BAR — bottom on mobile, top-left on desktop
+    -- TAB BAR -- bottom on mobile, top-left on desktop
     -------------------------------------------------------------------
     local tabBarH = mobile and 60 or 44
     local tabBarY, tabBarX, tabBarW
@@ -699,7 +739,7 @@ function DrawLib:Window(Settings)
                 end
             end
 
-            -- Scroll handler for this tab — registered when active
+            -- Scroll handler for this tab -- registered when active
             TabFunctions._scrollZone = nil
 
             function TabFunctions:Section(SecSettings)
@@ -751,7 +791,7 @@ function DrawLib:Window(Settings)
                     end
 
                     if SecSettings.Name then
-                        Sec:track(Draw.text(SecSettings.Name, x + innerPad, startY + 6, 14, T.Text, Drawing.Fonts.System, false, Z.panel+2))
+                        Sec:track(Draw.text(SecSettings.Name, x + innerPad, startY + 6, 14, T.Text, Drawing.Fonts.UI, false, Z.panel+2))
                         Sec:track(Draw.rect(x + innerPad, startY + titleH - 2, w - innerPad*2, 1, T.Border, 0.5, Z.panel+1))
                     end
 
@@ -808,8 +848,8 @@ function DrawLib:Window(Settings)
                         if self._visible == false then return end
                         local h = 36
                         local g = secEl:trackGroup(Draw.roundedGroup(x, y, w, h, 8, T.SurfaceHover, 0, Z.element))
-                        local name = secEl:track(Draw.text(self.Settings.Name or "Button", x + 12, y + (h-14)/2 - 1, 14, T.Text, Drawing.Fonts.System, false, Z.element+2))
-                        local chevron = secEl:track(Draw.text("›", x + w - 18, y + 6, 18, T.TextDim, Drawing.Fonts.UI, false, Z.element+2))
+                        local name = secEl:track(Draw.text(self.Settings.Name or "Button", x + 12, y + (h-14)/2 - 1, 14, T.Text, Drawing.Fonts.UI, false, Z.element+2))
+                        local chevron = secEl:track(Draw.text(">", x + w - 18, y + 6, 18, T.TextDim, Drawing.Fonts.UI, false, Z.element+2))
                         local zone = Input.register({
                             x=x, y=y, w=w, h=h, z=Z.element,
                             onPress = function() g:SetColor(T.SurfaceActive) end,
@@ -823,7 +863,7 @@ function DrawLib:Window(Settings)
                         })
                         secEl:trackZone(zone)
                         if self.Settings.Description then
-                            secEl:track(Draw.text(self.Settings.Description, x + 12, y + h + 2, 11, T.TextMuted, Drawing.Fonts.System, false, Z.element+2))
+                            secEl:track(Draw.text(self.Settings.Description, x + 12, y + h + 2, 11, T.TextMuted, Drawing.Fonts.UI, false, Z.element+2))
                         end
                     end
                     function item:UpdateName(n) self.Settings.Name = n; TabFunctions:_render() end
@@ -847,7 +887,7 @@ function DrawLib:Window(Settings)
                         if self._visible == false then return end
                         local h = 36
                         secEl:trackGroup(Draw.roundedGroup(x, y, w, h, 8, T.SurfaceHover, 0, Z.element))
-                        secEl:track(Draw.text(self.Settings.Name or "Toggle", x + 12, y + (h-14)/2 - 1, 14, T.Text, Drawing.Fonts.System, false, Z.element+2))
+                        secEl:track(Draw.text(self.Settings.Name or "Toggle", x + 12, y + (h-14)/2 - 1, 14, T.Text, Drawing.Fonts.UI, false, Z.element+2))
 
                         -- Toggle pill
                         local tw, th = 36, 20
@@ -929,7 +969,7 @@ function DrawLib:Window(Settings)
                         if self._visible == false then return end
                         local h = 52
                         secEl:trackGroup(Draw.roundedGroup(x, y, w, h, 8, T.SurfaceHover, 0, Z.element))
-                        secEl:track(Draw.text(self.Settings.Name or "Slider", x + 12, y + 8, 14, T.Text, Drawing.Fonts.System, false, Z.element+2))
+                        secEl:track(Draw.text(self.Settings.Name or "Slider", x + 12, y + 8, 14, T.Text, Drawing.Fonts.UI, false, Z.element+2))
 
                         local function fmt(v)
                             local p = self.Settings.Precision
@@ -942,7 +982,7 @@ function DrawLib:Window(Settings)
                             if p == 0 then return tostring(math.floor(rounded)) end
                             return string.format("%."..p.."f", rounded)
                         end
-                        local valLabel = secEl:track(Draw.text(fmt(self.Value), x + w - 12, y + 8, 13, T.Accent, Drawing.Fonts.System, false, Z.element+2))
+                        local valLabel = secEl:track(Draw.text(fmt(self.Value), x + w - 12, y + 8, 13, T.Accent, Drawing.Fonts.UI, false, Z.element+2))
                         valLabel.Position = Vector2.new(x + w - 12 - valLabel.TextBounds.X, y + 8)
 
                         -- Track bar
@@ -1031,16 +1071,16 @@ function DrawLib:Window(Settings)
                         if self._visible == false then return end
                         local h = 56
                         secEl:trackGroup(Draw.roundedGroup(x, y, w, h, 8, T.SurfaceHover, 0, Z.element))
-                        secEl:track(Draw.text(self.Settings.Name or "Input", x + 12, y + 6, 13, T.TextDim, Drawing.Fonts.System, false, Z.element+2))
+                        secEl:track(Draw.text(self.Settings.Name or "Input", x + 12, y + 6, 13, T.TextDim, Drawing.Fonts.UI, false, Z.element+2))
                         local boxY = y + 24
                         local boxH = 26
                         local boxBg = secEl:trackGroup(Draw.roundedGroup(x + 10, boxY, w - 20, boxH, 6, T.Background, 0, Z.element+1))
                         local boxStroke = secEl:trackGroup(Draw.roundedGroup(x + 10, boxY, w - 20, boxH, 6, T.Border, 0, Z.element))
-                        -- the bg over the stroke creates a 1px border illusion: simpler — just use one rect
+                        -- the bg over the stroke creates a 1px border illusion: simpler -- just use one rect
                         local placeholder = self.Settings.Placeholder or "Type here..."
                         local displayText = (self.Text and self.Text ~= "") and self.Text or placeholder
                         local displayColor = (self.Text and self.Text ~= "") and T.Text or T.TextMuted
-                        local txt = secEl:track(Draw.text(displayText, x + 18, boxY + 6, 13, displayColor, Drawing.Fonts.System, false, Z.element+3))
+                        local txt = secEl:track(Draw.text(displayText, x + 18, boxY + 6, 13, displayColor, Drawing.Fonts.UI, false, Z.element+3))
 
                         local function startEdit()
                             -- Use UserInputService keyboard capture via TextChannel polling
@@ -1122,7 +1162,7 @@ function DrawLib:Window(Settings)
                         if self._visible == false then return end
                         local h = 36
                         secEl:trackGroup(Draw.roundedGroup(x, y, w, h, 8, T.SurfaceHover, 0, Z.element))
-                        secEl:track(Draw.text(self.Settings.Name or "Keybind", x + 12, y + (h-14)/2 - 1, 14, T.Text, Drawing.Fonts.System, false, Z.element+2))
+                        secEl:track(Draw.text(self.Settings.Name or "Keybind", x + 12, y + (h-14)/2 - 1, 14, T.Text, Drawing.Fonts.UI, false, Z.element+2))
 
                         local pillW = 64
                         local pillH = 22
@@ -1131,7 +1171,7 @@ function DrawLib:Window(Settings)
                         local pill = secEl:trackGroup(Draw.roundedGroup(pillX, pillY, pillW, pillH, 6, T.Background, 0, Z.element+1))
                         local rawBind = type(self._bind) ~= "function" and self._bind or nil
                         local label = (rawBind and rawBind.Name) or "None"
-                        local lbl = secEl:track(Draw.text(label, pillX + pillW/2, pillY + 3, 12, T.TextDim, Drawing.Fonts.System, true, Z.element+3))
+                        local lbl = secEl:track(Draw.text(label, pillX + pillW/2, pillY + 3, 12, T.TextDim, Drawing.Fonts.UI, true, Z.element+3))
 
                         local listening = false
                         local function startListen()
@@ -1209,7 +1249,7 @@ function DrawLib:Window(Settings)
                         if self._visible == false then return end
                         local h = 36
                         secEl:trackGroup(Draw.roundedGroup(x, y, w, h, 8, T.SurfaceHover, 0, Z.element))
-                        secEl:track(Draw.text(self.Settings.Name or "Dropdown", x + 12, y + (h-14)/2 - 1, 14, T.Text, Drawing.Fonts.System, false, Z.element+2))
+                        secEl:track(Draw.text(self.Settings.Name or "Dropdown", x + 12, y + (h-14)/2 - 1, 14, T.Text, Drawing.Fonts.UI, false, Z.element+2))
 
                         local valueStr
                         if self.Settings.Multi then
@@ -1220,9 +1260,9 @@ function DrawLib:Window(Settings)
                             valueStr = (self.Value and tostring(self.Value)) or "..."
                         end
                         if #valueStr > 20 then valueStr = valueStr:sub(1, 20) .. ".." end
-                        local valLbl = secEl:track(Draw.text(valueStr, x + w - 26, y + (h-13)/2 - 1, 13, T.Accent, Drawing.Fonts.System, false, Z.element+2))
+                        local valLbl = secEl:track(Draw.text(valueStr, x + w - 26, y + (h-13)/2 - 1, 13, T.Accent, Drawing.Fonts.UI, false, Z.element+2))
                         valLbl.Position = Vector2.new(x + w - 26 - valLbl.TextBounds.X, y + (h-13)/2 - 1)
-                        secEl:track(Draw.text("▾", x + w - 18, y + (h-12)/2 - 1, 12, T.TextDim, Drawing.Fonts.UI, false, Z.element+2))
+                        secEl:track(Draw.text("v", x + w - 18, y + (h-12)/2 - 1, 12, T.TextDim, Drawing.Fonts.UI, false, Z.element+2))
 
                         local popupOpen = false
                         local popupEl = nil
@@ -1254,9 +1294,9 @@ function DrawLib:Window(Settings)
                                 local bgC = selected and T.SurfaceActive or T.Surface
                                 local rowG = popupEl:trackGroup(Draw.roundedGroup(popupX+4, oy, popupW-8, optH-2, 6, bgC, 0, Z.popup+1))
                                 local tc = selected and T.Accent or T.Text
-                                popupEl:track(Draw.text(opt, popupX + 14, oy + (optH-14)/2 - 1, 13, tc, Drawing.Fonts.System, false, Z.popup+2))
+                                popupEl:track(Draw.text(opt, popupX + 14, oy + (optH-14)/2 - 1, 13, tc, Drawing.Fonts.UI, false, Z.popup+2))
                                 if self.Settings.Multi then
-                                    popupEl:track(Draw.text(selected and "✓" or "", popupX + popupW - 24, oy + (optH-14)/2 - 1, 14, T.Accent, Drawing.Fonts.UI, false, Z.popup+2))
+                                    popupEl:track(Draw.text(selected and "+" or "", popupX + popupW - 24, oy + (optH-14)/2 - 1, 14, T.Accent, Drawing.Fonts.UI, false, Z.popup+2))
                                 end
                                 local zone = Input.register({
                                     x=popupX+4, y=oy, w=popupW-8, h=optH-2, z=Z.popup+1,
@@ -1356,7 +1396,7 @@ function DrawLib:Window(Settings)
                         if self._visible == false then return end
                         local h = 36
                         secEl:trackGroup(Draw.roundedGroup(x, y, w, h, 8, T.SurfaceHover, 0, Z.element))
-                        secEl:track(Draw.text(self.Settings.Name or "Colorpicker", x + 12, y + (h-14)/2 - 1, 14, T.Text, Drawing.Fonts.System, false, Z.element+2))
+                        secEl:track(Draw.text(self.Settings.Name or "Colorpicker", x + 12, y + (h-14)/2 - 1, 14, T.Text, Drawing.Fonts.UI, false, Z.element+2))
 
                         local swW, swH = 30, 20
                         local swX, swY = x + w - swW - 10, y + (h - swH)/2
@@ -1563,7 +1603,7 @@ function DrawLib:Window(Settings)
                     function item:_render(x, y, w, secEl)
                         if self._visible == false then return end
                         local txt = self.Settings.Text or self.Settings.Name or "Header"
-                        secEl:track(Draw.text(txt, x, y + 4, 15, T.Accent, Drawing.Fonts.System, false, Z.element+2))
+                        secEl:track(Draw.text(txt, x, y + 4, 15, T.Accent, Drawing.Fonts.UI, false, Z.element+2))
                         secEl:track(Draw.rect(x, y + 22, w, 1, T.Border, 0.5, Z.element+1))
                     end
                     function item:UpdateName(t) self.Settings.Text = t; TabFunctions:_render() end
@@ -1579,7 +1619,7 @@ function DrawLib:Window(Settings)
                     function item:_render(x, y, w, secEl)
                         if self._visible == false then return end
                         local txt = self.Settings.Text or self.Settings.Name or ""
-                        secEl:track(Draw.text(txt, x, y + 2, 13, T.Text, Drawing.Fonts.System, false, Z.element+2))
+                        secEl:track(Draw.text(txt, x, y + 2, 13, T.Text, Drawing.Fonts.UI, false, Z.element+2))
                     end
                     function item:UpdateName(t) self.Settings.Text = t; TabFunctions:_render() end
                     function item:SetVisibility(v) self._visible = v; TabFunctions:_render() end
@@ -1594,7 +1634,7 @@ function DrawLib:Window(Settings)
                     function item:_render(x, y, w, secEl)
                         if self._visible == false then return end
                         local txt = self.Settings.Text or self.Settings.Name or ""
-                        secEl:track(Draw.text(txt, x, y + 1, 12, T.TextDim, Drawing.Fonts.System, false, Z.element+2))
+                        secEl:track(Draw.text(txt, x, y + 1, 12, T.TextDim, Drawing.Fonts.UI, false, Z.element+2))
                     end
                     function item:UpdateName(t) self.Settings.Text = t; TabFunctions:_render() end
                     function item:SetVisibility(v) self._visible = v; TabFunctions:_render() end
@@ -1608,8 +1648,8 @@ function DrawLib:Window(Settings)
                     function item:_estimateHeight() return 44 end
                     function item:_render(x, y, w, secEl)
                         if self._visible == false then return end
-                        secEl:track(Draw.text(self.Settings.Header or "", x, y + 2, 14, T.Text, Drawing.Fonts.System, false, Z.element+2))
-                        secEl:track(Draw.text(self.Settings.Body or "", x, y + 22, 12, T.TextDim, Drawing.Fonts.System, false, Z.element+2))
+                        secEl:track(Draw.text(self.Settings.Header or "", x, y + 2, 14, T.Text, Drawing.Fonts.UI, false, Z.element+2))
+                        secEl:track(Draw.text(self.Settings.Body or "", x, y + 22, 12, T.TextDim, Drawing.Fonts.UI, false, Z.element+2))
                     end
                     function item:UpdateHeader(t) self.Settings.Header = t; TabFunctions:_render() end
                     function item:UpdateBody(t) self.Settings.Body = t; TabFunctions:_render() end
@@ -1745,10 +1785,10 @@ function DrawLib:Window(Settings)
             local isActive = activeTab == tab
             local txtColor = isActive and T.Accent or T.TextDim
             local name = tab.Settings.Name or ("Tab "..i)
-            local label = el:track(Draw.text(name, bx + btnW/2, by + (bh - 14)/2 - (mobile and 6 or 0), mobile and 12 or 13, txtColor, Drawing.Fonts.System, true, Z.topbar+3))
+            local label = el:track(Draw.text(name, bx + btnW/2, by + (bh - 14)/2 - (mobile and 6 or 0), mobile and 12 or 13, txtColor, Drawing.Fonts.UI, true, Z.topbar+3))
             if mobile then
                 -- icon area above text
-                el:track(Draw.text("●", bx + btnW/2, by + 10, 14, txtColor, Drawing.Fonts.UI, true, Z.topbar+3))
+                el:track(Draw.text("o", bx + btnW/2, by + 10, 14, txtColor, Drawing.Fonts.UI, true, Z.topbar+3))
             end
             -- active accent underline (or top stripe on mobile)
             if isActive then
@@ -1811,9 +1851,9 @@ function DrawLib:Window(Settings)
         local bgG = el:trackGroup(Draw.roundedGroup(nX, nY, nW, nH, 10, T.Surface, 0, Z.notif))
         el:trackGroup(Draw.roundedGroup(nX-1, nY-1, nW+2, nH+2, 11, T.Border, 0.6, Z.notif-1))
         el:track(Draw.rect(nX + 8, nY + 12, 3, nH - 24, T.Accent, 0, Z.notif+1))
-        el:track(Draw.text(s.Title or "Notification", nX + 18, nY + 8, 13, T.Text, Drawing.Fonts.System, false, Z.notif+2))
+        el:track(Draw.text(s.Title or "Notification", nX + 18, nY + 8, 13, T.Text, Drawing.Fonts.UI, false, Z.notif+2))
         if s.Description then
-            el:track(Draw.text(s.Description, nX + 18, nY + 28, 12, T.TextDim, Drawing.Fonts.System, false, Z.notif+2))
+            el:track(Draw.text(s.Description, nX + 18, nY + 28, 12, T.TextDim, Drawing.Fonts.UI, false, Z.notif+2))
         end
 
         local notif = { _el=el, _h=nH }
@@ -1854,9 +1894,9 @@ function DrawLib:Window(Settings)
         el:trackGroup(Draw.shadow(dX, dY, dW, dH, 14, Z.dialog))
         el:trackGroup(Draw.roundedGroup(dX, dY, dW, dH, 14, T.Surface, 0, Z.dialog))
         el:trackGroup(Draw.roundedGroup(dX-1, dY-1, dW+2, dH+2, 15, T.Border, 0.5, Z.dialog-1))
-        el:track(Draw.text(s.Title or "Dialog", dX + 18, dY + 16, 16, T.Text, Drawing.Fonts.System, false, Z.dialog+1))
+        el:track(Draw.text(s.Title or "Dialog", dX + 18, dY + 16, 16, T.Text, Drawing.Fonts.UI, false, Z.dialog+1))
         if s.Description then
-            el:track(Draw.text(s.Description, dX + 18, dY + 44, 13, T.TextDim, Drawing.Fonts.System, false, Z.dialog+1))
+            el:track(Draw.text(s.Description, dX + 18, dY + 44, 13, T.TextDim, Drawing.Fonts.UI, false, Z.dialog+1))
         end
 
         local buttons = s.Buttons or {}
@@ -1869,7 +1909,7 @@ function DrawLib:Window(Settings)
             local col = primary and T.Accent or T.SurfaceHover
             local txC = primary and T.Background or T.Text
             local g = el:trackGroup(Draw.roundedGroup(bx, btnY, btnW, btnH, 8, col, 0, Z.dialog+1))
-            el:track(Draw.text(b.Name or "OK", bx + btnW/2, btnY + (btnH-14)/2 - 1, 14, txC, Drawing.Fonts.System, true, Z.dialog+2))
+            el:track(Draw.text(b.Name or "OK", bx + btnW/2, btnY + (btnH-14)/2 - 1, 14, txC, Drawing.Fonts.UI, true, Z.dialog+2))
             el:trackZone(Input.register({
                 x=bx, y=btnY, w=btnW, h=btnH, z=Z.dialog+1,
                 onRelease = function(rx, ry)
@@ -1932,7 +1972,7 @@ function DrawLib:Window(Settings)
     local fabColor = Settings.ToggleBtnColor or T.Accent
     local fabShadow = fabEl:trackGroup(Draw.shadow(fabX, fabY, fabSize, fabSize, fabSize/2, Z.fab))
     local fabBg = fabEl:trackGroup(Draw.roundedGroup(fabX, fabY, fabSize, fabSize, fabSize/2, fabColor, 0, Z.fab))
-    local fabIcon = fabEl:track(Draw.text("✕", fabX + fabSize/2, fabY + (fabSize-18)/2, 18, T.Background, Drawing.Fonts.System, true, Z.fab+1))
+    local fabIcon = fabEl:track(Draw.text("✕", fabX + fabSize/2, fabY + (fabSize-18)/2, 18, T.Background, Drawing.Fonts.UI, true, Z.fab+1))
 
     local function setFabIcon()
         fabIcon.Text = WindowFunctions._opened and "✕" or "≡"
@@ -2236,7 +2276,7 @@ function DrawLib:WatchOption(flag, fn)
 end
 
 function DrawLib:StyleElement(flag, props)
-    -- minimal — DrawLib doesn't expose every prop, but we support common ones
+    -- minimal -- DrawLib doesn't expose every prop, but we support common ones
     local opt = DrawLib.Options[flag]
     if not opt then return end
     if props.Visible ~= nil and opt.SetVisibility then opt:SetVisibility(props.Visible) end
@@ -2345,7 +2385,7 @@ function DrawLib:Demo()
     sec:Colorpicker({ Name = "Color", Default = Color3.fromRGB(0, 229, 255), Callback = function(c) print(c) end }, "demoColor")
     sec:Input({ Name = "Text", Placeholder = "type...", Callback = function(t) print("Input", t) end }, "demoInput")
     sec:Divider()
-    sec:Label({ Text = "Built on Drawing API — mobile-friendly" })
+    sec:Label({ Text = "Built on Drawing API -- mobile-friendly" })
     DrawLib:SetFolder("DrawLib")
     tabSettings:InsertConfigSection("Left")
     tabSettings:InsertCustomisationSection("Right")
