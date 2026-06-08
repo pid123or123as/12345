@@ -859,7 +859,7 @@ function DrawLib:Window(Settings)
                                     task.spawn(self.Settings.Callback)
                                 end
                             end,
-                            visible = function() return self._visible and WindowFunctions._opened and activeTab == TabFunctions end,
+                            visible = function() return self._visible ~= false and WindowFunctions._opened end,
                         })
                         secEl:trackZone(zone)
                         if self.Settings.Description then
@@ -928,7 +928,7 @@ function DrawLib:Window(Settings)
                                     setState(not self.State, true)
                                 end
                             end,
-                            visible = function() return self._visible and WindowFunctions._opened and activeTab == TabFunctions end,
+                            visible = function() return self._visible ~= false and WindowFunctions._opened end,
                         })
                         secEl:trackZone(zone)
                     end
@@ -1037,7 +1037,7 @@ function DrawLib:Window(Settings)
                                 local p = clamp((px - trackX) / trackW, 0, 1)
                                 setValue(self.Settings.Minimum + p * (self.Settings.Maximum - self.Settings.Minimum), true)
                             end,
-                            visible = function() return self._visible and WindowFunctions._opened and activeTab == TabFunctions end,
+                            visible = function() return self._visible ~= false and WindowFunctions._opened end,
                         })
                         secEl:trackZone(zone)
                     end
@@ -1128,7 +1128,7 @@ function DrawLib:Window(Settings)
                         local zone = Input.register({
                             x=x+10, y=boxY, w=w-20, h=boxH, z=Z.element+1,
                             onRelease = function(rx, ry) if pointInRect(rx, ry, x+10, boxY, w-20, boxH) then startEdit() end end,
-                            visible = function() return self._visible and WindowFunctions._opened and activeTab == TabFunctions end,
+                            visible = function() return self._visible ~= false and WindowFunctions._opened end,
                         })
                         secEl:trackZone(zone)
                     end
@@ -1201,7 +1201,7 @@ function DrawLib:Window(Settings)
                         local zone = Input.register({
                             x=pillX, y=pillY, w=pillW, h=pillH, z=Z.element+1,
                             onRelease = function(rx, ry) if pointInRect(rx, ry, pillX, pillY, pillW, pillH) then startListen() end end,
-                            visible = function() return self._visible and WindowFunctions._opened and activeTab == TabFunctions end,
+                            visible = function() return self._visible ~= false and WindowFunctions._opened end,
                         })
                         secEl:trackZone(zone)
                     end
@@ -1331,7 +1331,7 @@ function DrawLib:Window(Settings)
                         local zone = Input.register({
                             x=x, y=y, w=w, h=h, z=Z.element,
                             onRelease = function(rx, ry) if pointInRect(rx, ry, x, y, w, h) then openPopup() end end,
-                            visible = function() return self._visible and WindowFunctions._opened and activeTab == TabFunctions end,
+                            visible = function() return self._visible ~= false and WindowFunctions._opened end,
                         })
                         secEl:trackZone(zone)
                     end
@@ -1568,7 +1568,7 @@ function DrawLib:Window(Settings)
                         local zone = Input.register({
                             x=swX-4, y=swY-4, w=swW+8, h=swH+8, z=Z.element+1,
                             onRelease = function(rx, ry) if pointInRect(rx, ry, swX-4, swY-4, swW+8, swH+8) then openPopup() end end,
-                            visible = function() return self._visible and WindowFunctions._opened and activeTab == TabFunctions end,
+                            visible = function() return self._visible ~= false and WindowFunctions._opened end,
                         })
                         secEl:trackZone(zone)
                     end
@@ -1972,10 +1972,10 @@ function DrawLib:Window(Settings)
     local fabColor = Settings.ToggleBtnColor or T.Accent
     local fabShadow = fabEl:trackGroup(Draw.shadow(fabX, fabY, fabSize, fabSize, fabSize/2, Z.fab))
     local fabBg = fabEl:trackGroup(Draw.roundedGroup(fabX, fabY, fabSize, fabSize, fabSize/2, fabColor, 0, Z.fab))
-    local fabIcon = fabEl:track(Draw.text("✕", fabX + fabSize/2, fabY + (fabSize-18)/2, 18, T.Background, Drawing.Fonts.UI, true, Z.fab+1))
+    local fabIcon = fabEl:track(Draw.text("X", fabX + fabSize/2, fabY + (fabSize-18)/2, 18, T.Background, Drawing.Fonts.UI, true, Z.fab+1))
 
     local function setFabIcon()
-        fabIcon.Text = WindowFunctions._opened and "✕" or "≡"
+        fabIcon.Text = WindowFunctions._opened and "X" or "="
     end
     setFabIcon()
 
@@ -2047,6 +2047,15 @@ function DrawLib:Window(Settings)
     if DrawLib._hooks["Window"] then
         for _, h in ipairs(DrawLib._hooks["Window"]) do pcall(h, WindowFunctions, Settings) end
     end
+
+    -- Auto-select первый таб после того как пользователь создаст все Tab/Section
+    task.defer(function()
+        task.defer(function()  -- двойной defer: ждём Tab() + Section() + элементы
+            if activeTab == nil and allTabs[1] then
+                allTabs[1]:Select()
+            end
+        end)
+    end)
 
     return WindowFunctions
 end
